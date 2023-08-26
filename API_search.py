@@ -5,6 +5,9 @@ import string
 import numpy as np
 import re
 import json
+import os
+import tarfile
+from gensim.models import KeyedVectors
 
 from flask import Flask, request, jsonify
 
@@ -21,10 +24,22 @@ client = weaviate.Client(
 )
 paths = ["test-dataset-1.md", "test-dataset-2.md"]
 
-# 腾讯
-from gensim.models import KeyedVectors
-file = 'word/tencent-ailab-embedding-zh-d100-v0.2.0-s.txt'
-wv_from_text = KeyedVectors.load_word2vec_format(file, binary=False)
+# 腾讯向量词
+def extract_tar_gz(file_path, extract_path):
+    # 解压缩文件
+    with tarfile.open(file_path, 'r:gz') as tar:
+        tar.extractall(path=extract_path)
+
+# 检查特定文件是否存在
+specific_file_path = 'tencent-ailab-embedding-zh-d100-v0.2.0-s/tencent-ailab-embedding-zh-d100-v0.2.0-s.txt'
+tar_gz_path = 'tencent-ailab-embedding-zh-d100-v0.2.0-s.tar.gz'
+
+if not os.path.exists(specific_file_path):
+    print("Embedding file not found. Extracting now...")
+    extract_tar_gz(tar_gz_path, '')
+    print("Extraction complete.")
+
+wv_from_text = KeyedVectors.load_word2vec_format(specific_file_path, binary=False)
 
 # 清除类
 client.schema.delete_class("Article")
@@ -55,7 +70,6 @@ article_class = {
 # 在Weaviate中添加类定义
 client.schema.create_class(article_class)
 
-# Initialize counter and interval for displaying progress
 
 
 def process_data(path):
@@ -91,21 +105,20 @@ def add_article_to_batch(batch, title, author, segment, wv_from_text):
     }
     batch.add_data_object(properties, 'Article', vector=sentence_vector_mean)
     
-    # Calculate and display progress
     counter += 1
     if counter % interval == 0:
         print(f'Imported {counter} segments...')
 
 
-# Read your data (assuming you have a way to get 'title', 'author', and 'segments')
+# 读取数据
 for path in paths:
     title, author, segments = process_data(path)
     # Configure batch once
     client.batch.configure(batch_size=100)
 
-    # Use the batch
+    # 循环读取数据
     with client.batch as batch:
-        for segment in segments:  # assuming 'segments' is a list of text segments from your article
+        for segment in segments:  
             add_article_to_batch(batch, title, author, segment, wv_from_text)
 
     print(f'Finished importing {counter} segments.')
